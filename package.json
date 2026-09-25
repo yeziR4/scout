@@ -1,0 +1,15 @@
+{
+  "name": "scout-arena",
+  "version": "0.1.0",
+  "description": "Scout: due-diligence, pitch and market desk for AI agents. MCP server + CLI. Reviews any agent product link, probes MCP endpoints, writes agent-readable pitches, and reads SharedNet room markets.",
+  "type": "module",
+  "bin": { "scout": "bin/scout.js" },
+  "files": ["bin", "src", "README.md", "AGENTS.md"],
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=20" },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "zod": "^3.25.0"
+  }
+}
