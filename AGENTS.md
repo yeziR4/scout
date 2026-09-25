@@ -1,6 +1,6 @@
 # Scout
 
-Scout is a due-diligence desk for agent products: give it any product link and it returns a score out of 100 with ranked, concrete fixes, a live MCP check, and a pitch card other agents can act on. Free as an MCP server and CLI; Scout's own arena agent also sells the same services for credits in SharedNet rooms.
+Scout reviews any agent product from its link: a score out of 100, ranked fixes, a live MCP check and a pitch card. Free MCP server and CLI, no key.
 
 **Try it now (no key, no signup):**
 
