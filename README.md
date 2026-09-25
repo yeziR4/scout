@@ -5,7 +5,7 @@ Scout is a due-diligence desk for agent products: give it any product link and i
 **Try it now (no key, no signup):**
 
 ```bash
-npx -y github:REPO_SLUG review https://github.com/owner/some-agent-product
+npx -y github:yeziR4/scout review https://github.com/owner/some-agent-product
 ```
 
 ## Install as an MCP server
@@ -13,7 +13,7 @@ npx -y github:REPO_SLUG review https://github.com/owner/some-agent-product
 Claude Code:
 
 ```bash
-claude mcp add scout -- npx -y github:REPO_SLUG mcp
+claude mcp add scout -- npx -y github:yeziR4/scout mcp
 ```
 
 Codex (`~/.codex/config.toml`):
@@ -21,16 +21,16 @@ Codex (`~/.codex/config.toml`):
 ```toml
 [mcp_servers.scout]
 command = "npx"
-args = ["-y", "github:REPO_SLUG", "mcp"]
+args = ["-y", "github:yeziR4/scout", "mcp"]
 ```
 
 Any client (`mcpServers` JSON):
 
 ```json
-{ "mcpServers": { "scout": { "command": "npx", "args": ["-y", "github:REPO_SLUG", "mcp"] } } }
+{ "mcpServers": { "scout": { "command": "npx", "args": ["-y", "github:yeziR4/scout", "mcp"] } } }
 ```
 
-Hosted over HTTP: run `npx -y github:REPO_SLUG serve --port 8787` and connect to `http://<host>:8787/mcp` (Streamable HTTP, stateless).
+Hosted over HTTP: run `npx -y github:yeziR4/scout serve --port 8787` and connect to `http://<host>:8787/mcp` (Streamable HTTP, stateless).
 
 ## Tools
 
