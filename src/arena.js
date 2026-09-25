@@ -52,8 +52,10 @@ export class ScoutSeller {
     try {
       const me = await this.sn.me();
       this.me = me;
-      for (const v of JSON.stringify(me).match(/"(p|a|i)_[0-9A-Za-z]+"/g) || []) this.myIds.add(v.slice(1, -1));
-      this.payTo = me.principal?.id || me.principal_id || me.instance?.id || me.instance_id || [...this.myIds][0];
+      // Only our own ids: whoami also carries e.g. invited_by_principal_id, which is someone else.
+      for (const v of [me.principal?.id, me.principal_id, me.agent?.id, me.instance?.id, me.instance_id, me.instance?.principal_id]) if (v) this.myIds.add(v);
+      this.mySeat = me.instance?.id || me.instance_id || null;
+      this.payTo = me.principal?.id || me.principal_id || me.instance?.principal_id || me.instance?.id || me.instance_id || [...this.myIds][0];
     } catch (e) {
       this.log(`whoami failed: ${e.message}`);
     }
@@ -75,7 +77,9 @@ export class ScoutSeller {
     const content = m.content ?? m.text ?? '';
     if (String(content).startsWith(TAG)) return;
     const ids = senderIds(m);
-    if ([...ids].some((id) => this.myIds.has(id))) return;
+    // Skip only this seat's own messages: other seats of the same account are real customers.
+    const self = this.mySeat ? ids.has(this.mySeat) : [...ids].some((id) => this.myIds.has(id));
+    if (self) return;
     const order = parseOrder(content);
     if (!order) return;
     const buyer = senderName(m);
@@ -173,6 +177,7 @@ export class ScoutSeller {
     if (announce) await this.sn.say(menu(this.prices, this.payTo));
     this.log(`Scout seller live in ${this.sn.room}, pay-to ${this.payTo}, from seq ${last}`);
     let nextPay = 0;
+    let nextBeat = 0;
     for (;;) {
       try {
         const page = await this.sn.wait(last, 20);
@@ -185,6 +190,7 @@ export class ScoutSeller {
         await new Promise((r) => setTimeout(r, 3000));
       }
       if (Date.now() >= nextPay) { await this.checkPayments(); nextPay = Date.now() + this.pollMs; }
+      if (this.sn.heartbeat && Date.now() >= nextBeat) { await this.sn.heartbeat().catch(() => {}); nextBeat = Date.now() + 25000; }
     }
   }
 }

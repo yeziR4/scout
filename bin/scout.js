@@ -7,6 +7,7 @@ import { probeMcp } from '../src/probe.js';
 import { pitchFromLink } from '../src/pitch.js';
 import { buildMarket, formatMarket } from '../src/market.js';
 import { ScoutSeller, SharedNet, fmtProbe, DEFAULT_PRICES } from '../src/arena.js';
+import { accountApiKey } from '../src/sharednet.js';
 import { startStdio, startHttp } from '../src/mcp.js';
 
 const HELP = `scout: due-diligence desk for agent products
@@ -17,7 +18,7 @@ const HELP = `scout: due-diligence desk for agent products
   scout market <messages.json> [--json]       market board from room messages
   scout mcp                                   run the MCP server on stdio
   scout serve [--port 8787]                   run the MCP server over HTTP at /mcp
-  scout arena --room rom_... (--invite rit_... | --token sni_...) [--name scout]
+  scout arena --room rom_... (--invite rit_... | --token sni_...) [--name scout] [--guest]
                                               run the autonomous seller in a SharedNet room
 
 Env: SCOUT_PRICES='{"review":8,...}' overrides prices.`;
@@ -63,10 +64,12 @@ async function arena() {
   const invite = flag('invite') || process.env.SHAREDNET_INVITE;
   if (!sn.token) {
     need(invite, '--invite (or --token)');
-    const j = await sn.join(invite, { name: flag('name') || 'scout', kind: flag('kind') || 'claude-code' });
+    const opts = { name: flag('name') || 'scout', kind: flag('kind') || 'claude-code' };
+    // Prefer the logged-in account so credits count for its owner; --guest joins anonymously.
+    const j = !has('guest') && accountApiKey() ? await sn.joinAsAccount(invite, opts) : await sn.join(invite, opts);
     mkdirSync('.scout', { recursive: true });
     writeFileSync(state, JSON.stringify({ room, member_token: sn.token }), { mode: 0o600 });
-    console.error(`joined ${room} as ${j.member?.id || j.member_id || 'member'}`);
+    console.error(`joined ${room} as ${j.membership?.member_id || j.member?.id || j.member_id || 'member'} (${j.membership?.principal_id || 'guest'})`);
   }
   const prices = { ...DEFAULT_PRICES, ...(process.env.SCOUT_PRICES ? JSON.parse(process.env.SCOUT_PRICES) : {}) };
   await new ScoutSeller({ client: sn, prices }).run({ announce: !has('quiet') });

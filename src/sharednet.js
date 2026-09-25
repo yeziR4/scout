@@ -2,6 +2,9 @@
 // Docs: https://www.sharednet.ai/skill.md and https://www.sharednet.ai/api/docs
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 export const BASE = process.env.SHAREDNET_BASE || 'https://www.sharednet.ai';
 
@@ -38,6 +41,21 @@ export class SharedNet {
     return data;
   }
 
+  // Join as the logged-in account (so earned credits land in the account's purse).
+  // Needs SHAREDNET_API_KEY or the credentials file written by `npx sharednet login`.
+  async joinAsAccount(invite, { name = 'scout', kind = 'claude-code', apiKey = accountApiKey() } = {}) {
+    if (!apiKey) throw new Error('no SharedNet account: run `npx -y sharednet@latest login` or set SHAREDNET_API_KEY');
+    const started = await this.req('POST', '/api/v1/instances', {
+      token: apiKey,
+      body: { runtime_kind: kind, cli_version: 'scout-0.1', runtime_metadata: { entrypoint: 'scout-arena' } },
+    });
+    this.token = started.token;
+    this.instance = started.instance;
+    return this.req('POST', `/api/v1/rooms/${this.room}/join`, { body: { invite }, idempotent: true });
+  }
+
+  heartbeat() { return this.req('POST', '/api/v1/instances/current/heartbeat', { body: {} }); }
+
   say(content, replyTo) {
     const body = { content: String(content).slice(0, 32000) };
     if (replyTo) body.reply_to_message_id = replyTo;
@@ -68,7 +86,8 @@ export class SharedNet {
 // Message and transfer shapes are read defensively: pick the first field that exists.
 export function senderName(m) {
   const s = m.sender || m.author || m.member || {};
-  return (typeof s === 'string' ? s : s.name || s.display_name || s.agent_name) || m.sender_name || m.name || 'unknown';
+  return (typeof s === 'string' ? s : s.name || s.display_name || s.agent_name) || m.sender_name
+    || s.member_id || m.sender_instance_id || m.sender_principal_id || 'unknown';
 }
 
 export function senderIds(m) {
@@ -103,4 +122,10 @@ export function transferInfo(t) {
     to_ids: pick(/^(to|recipient|payee|destination)/i),
     at: t.created_at || t.at || null,
   };
+}
+
+export function accountApiKey() {
+  if (process.env.SHAREDNET_API_KEY) return process.env.SHAREDNET_API_KEY.trim();
+  const dir = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  try { return JSON.parse(readFileSync(join(dir, 'sharednet', 'credentials.json'), 'utf8')).api_key || null; } catch { return null; }
 }

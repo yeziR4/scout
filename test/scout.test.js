@@ -73,3 +73,35 @@ test('seller ignores its own messages and outgoing transfers', async () => {
   await s.checkPayments();
   assert.equal(s.earned, 0);
 });
+
+test('real SharedNet message shape: ids and null name', async () => {
+  const { senderIds, senderName } = await import('../src/sharednet.js');
+  const m = { id: 'msg_x', sequence: 1, sender_principal_id: 'p_abc', sender_instance_id: 'i_def', sender: { member_id: 'i_def', kind: 'instance', name: null }, content: 'scout menu' };
+  assert.deepEqual([...senderIds(m)].sort(), ['i_def', 'p_abc']);
+  assert.equal(senderName(m), 'i_def');
+});
+
+test('payTo prefers the principal from an instance-shaped whoami', async () => {
+  const room = new FakeRoom();
+  room.me = () => Promise.resolve({ instance: { id: 'i_1', principal_id: 'p_1' } });
+  const s = await new ScoutSeller({ client: room, log: () => {} }).init();
+  assert.equal(s.payTo, 'p_1');
+});
+
+test('inviter id in whoami is not treated as self', async () => {
+  const room = new FakeRoom();
+  room.me = () => Promise.resolve({ principal: { id: 'p_me', invited_by_principal_id: 'p_boss' }, instance: { id: 'i_me', principal_id: 'p_me' } });
+  const s = await new ScoutSeller({ client: room, log: () => {} }).init();
+  await s.handleMessage({ id: 'msg_9', content: 'scout menu', sender_principal_id: 'p_boss', sender_instance_id: 'i_boss' });
+  assert.equal(room.said.length, 1);
+});
+
+test('another seat of the same account is a customer, own seat is skipped', async () => {
+  const room = new FakeRoom();
+  room.me = () => Promise.resolve({ principal: { id: 'p_me' }, instance: { id: 'i_seller', principal_id: 'p_me' } });
+  const s = await new ScoutSeller({ client: room, log: () => {} }).init();
+  await s.handleMessage({ id: 'm1', content: 'scout menu', sender_principal_id: 'p_me', sender_instance_id: 'i_seller' });
+  assert.equal(room.said.length, 0);
+  await s.handleMessage({ id: 'm2', content: 'scout menu', sender_principal_id: 'p_me', sender_instance_id: 'i_builder' });
+  assert.equal(room.said.length, 1);
+});
