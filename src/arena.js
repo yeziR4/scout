@@ -6,6 +6,7 @@ import { reviewProduct, formatReview } from './review.js';
 import { probeMcp } from './probe.js';
 import { pitchFromLink } from './pitch.js';
 import { buildMarket, formatMarket } from './market.js';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 export const DEFAULT_PRICES = { review: 8, pitch: 5, probe: 4, market: 3, kit: 14 };
 
@@ -20,7 +21,7 @@ export function menu(prices, payTo) {
     `- probe <mcp-url>: live MCP check, tools, latency, schema issues. ${prices.probe} cr`,
     `- market: who sells what at what price in this room + pricing advice. ${prices.market} cr`,
     `- kit <link>: review + pitch + probe together. ${prices.kit} cr (save ${prices.review + prices.pitch + prices.probe - prices.kit})`,
-    `Order: say "scout review https://…". Pay: transfer to ${payTo} with the order code as memo. Delivery is posted here within a minute of payment.`,
+    `Order: say "scout review https://…". Pay: \`sharednet pay ${payTo} <price> --memo <order code> --room\`. Delivery here within a minute of payment. Failed delivery, overpayment or a payment for an unknown order code is refunded automatically.`,
   ].join('\n');
 }
 
@@ -37,7 +38,11 @@ export function parseOrder(text) {
 }
 
 export class ScoutSeller {
-  constructor({ client, prices = DEFAULT_PRICES, log = console.error, pollMs = 8000 }) {
+  constructor({ client, prices = DEFAULT_PRICES, log = console.error, pollMs = 8000, statePath = null, previewLimit = 3, previewWindowMs = 10 * 60 * 1000 }) {
+    this.statePath = statePath;
+    this.previewLimit = previewLimit;
+    this.previewWindowMs = previewWindowMs;
+    this.previews = new Map(); // buyer id -> timestamps of free previews
     this.sn = client;
     this.prices = prices;
     this.log = log;
@@ -59,12 +64,41 @@ export class ScoutSeller {
     } catch (e) {
       this.log(`whoami failed: ${e.message}`);
     }
-    // Remember transfers that happened before we started so they are not matched to new orders.
-    try {
-      const t = await this.sn.transfers({ limit: 100 });
-      for (const it of t.items || []) this.seenTransfers.add(transferInfo(it).id);
-    } catch (e) { this.log(`transfers failed: ${e.message}`); }
+    // Orders survive a restart, so a payment for an order quoted before the restart is still honoured.
+    const saved = this.loadState();
+    if (saved) {
+      for (const o of saved.orders || []) this.orders.set(o.code, o);
+      for (const id of saved.seen || []) this.seenTransfers.add(id);
+      this.earned = saved.earned || 0;
+    } else {
+      // Fresh start: transfers from before now are not payments for our orders.
+      try {
+        const t = await this.sn.transfers({ limit: 100 });
+        for (const it of t.items || []) this.seenTransfers.add(transferInfo(it).id);
+      } catch (e) { this.log(`transfers failed: ${e.message}`); }
+    }
     return this;
+  }
+
+  loadState() {
+    if (!this.statePath) return null;
+    try { return JSON.parse(readFileSync(this.statePath, 'utf8')); } catch { return null; }
+  }
+
+  saveState() {
+    if (!this.statePath) return;
+    const orders = [...this.orders.values()].map(({ cache, ...o }) => o);
+    try { writeFileSync(this.statePath, JSON.stringify({ orders, seen: [...this.seenTransfers], earned: this.earned }), { mode: 0o600 }); } catch (e) { this.log(`save: ${e.message}`); }
+  }
+
+  // Free previews cost us real work; cap them per buyer so they cannot replace paying.
+  allowPreview(buyerKey) {
+    const now = Date.now();
+    const recent = (this.previews.get(buyerKey) || []).filter((t) => now - t < this.previewWindowMs);
+    if (recent.length >= this.previewLimit) { this.previews.set(buyerKey, recent); return false; }
+    recent.push(now);
+    this.previews.set(buyerKey, recent);
+    return true;
   }
 
   newCode() {
@@ -97,12 +131,51 @@ export class ScoutSeller {
     this.orders.set(code, o);
 
     let preview = '';
-    try { preview = await this.preview(o); } catch (e) { preview = `(preview failed: ${e.message})`; }
+    const buyerKey = m.sender_principal_id || [...ids][0] || buyer;
+    if (this.allowPreview(buyerKey)) {
+      try { preview = await this.preview(o); } catch (e) { preview = `(preview failed: ${e.message})`; }
+    } else {
+      preview = `(free preview limit reached: ${this.previewLimit} per ${Math.round(this.previewWindowMs / 60000)} min; the paid result is unaffected)`;
+    }
+    this.saveState();
     await this.sn.say(
       `${TAG} @${buyer} order ${code}: ${o.service}${o.link ? ` ${o.link}` : ''}. ${preview}\n` +
-      `Full result: transfer ${price} credits to ${this.payTo} with memo "${code}". I deliver here as soon as it lands.`,
+      `Full result: \`sharednet pay ${this.payTo} ${price} --memo ${code} --room\` (or transfer ${price} credits to ${this.payTo}, memo "${code}"). Delivered here as soon as it lands; refunded if delivery fails.`,
       msgId,
     );
+  }
+
+  async refund(to, amount, memo, o) {
+    if (!to || amount <= 0) return;
+    try {
+      await this.sn.transfer(to, amount, memo.slice(0, 200));
+      this.earned -= amount;
+      this.log(`refunded ${amount} to ${to}: ${memo}`);
+      if (o) await this.sn.say(`${TAG} @${o.buyer} refunded ${amount} cr for ${o.code}: ${memo}`, o.msgId).catch(() => {});
+    } catch (e) {
+      this.log(`refund of ${amount} to ${to} failed: ${e.message}`);
+    }
+  }
+
+  async fulfil(o) {
+    o.status = 'delivering';
+    try {
+      await this.deliver(o);
+    } catch (e) {
+      o.attempts = (o.attempts || 0) + 1;
+      this.log(`deliver ${o.code} failed (attempt ${o.attempts}): ${e.message}`);
+      if (o.attempts >= 2) {
+        o.status = 'refunded';
+        await this.refund(o.payer, o.paid, `refund ${o.code}: delivery failed`, o);
+      } else {
+        o.status = 'retry';
+      }
+    }
+    if (o.status === 'delivered' && o.paid > o.price) {
+      await this.refund(o.payer, o.paid - o.price, `refund ${o.code}: overpayment`, o);
+      o.paid = o.price;
+    }
+    this.saveState();
   }
 
   async preview(o) {
@@ -114,7 +187,9 @@ export class ScoutSeller {
     if (o.service === 'probe') {
       const p = await probeMcp(o.link);
       o.cache = { probe: p };
-      return `Preview: ${p.reachable ? `reachable, ${p.tools.length} tools` : 'NOT reachable'}; ${p.issues.length} issues found.`;
+      const n = p.issues.length + p.tools.reduce((k, t) => k + t.issues.length, 0);
+      const call = p.smoke ? (p.smoke.skipped ? '' : `, real call to ${p.smoke.tool} ${p.smoke.ok ? 'OK' : 'FAILED'}`) : '';
+      return `Preview: ${p.reachable ? `reachable, ${p.tools.length} tools${call}` : p.auth_required ? 'answers, needs auth' : 'NOT reachable'}; ${n} issue${n === 1 ? '' : 's'} found.`;
     }
     if (o.service === 'pitch') return 'Preview: I will turn your doc into a 5-line card other agents can act on.';
     if (o.service === 'market') {
@@ -156,15 +231,26 @@ export class ScoutSeller {
       // No memo: match the oldest unpaid order from that payer, else by exact price.
       if (!o) o = [...this.orders.values()].find((x) => x.status === 'quoted' && x.buyerIds.some((id) => t.from_ids.includes(id)));
       if (!o) o = [...this.orders.values()].find((x) => x.status === 'quoted' && x.price === t.amount);
-      if (!o) { this.log(`unmatched transfer ${t.id} ${t.amount} memo=${t.memo}`); continue; }
+      if (!o) {
+        // A payment naming an order code we never issued (or already served) goes back.
+        if (code) await this.refund(t.from_ids[0], t.amount, `refund ${code}: no open Scout order with this code`);
+        else this.log(`unmatched transfer ${t.id} ${t.amount} memo=${t.memo}`);
+        continue;
+      }
+      if (o.status !== 'quoted') {
+        await this.refund(t.from_ids[0], t.amount, `refund ${o.code}: order already ${o.status}`, o);
+        continue;
+      }
       o.paid = (o.paid || 0) + t.amount;
-      if (o.paid >= o.price && o.status === 'quoted') {
-        o.status = 'delivering';
-        await this.deliver(o).catch((e) => { o.status = 'quoted'; this.log(`deliver ${o.code} failed: ${e.message}`); });
-      } else if (verbose) {
-        await this.sn.say(`${TAG} ${o.code}: received ${o.paid}/${o.price} cr.`, o.msgId);
+      o.payer = o.payer || t.from_ids[0];
+      if (o.paid >= o.price) await this.fulfil(o);
+      else {
+        this.saveState();
+        if (verbose) await this.sn.say(`${TAG} ${o.code}: received ${o.paid}/${o.price} cr.`, o.msgId);
       }
     }
+    for (const o of this.orders.values()) if (o.status === 'retry') await this.fulfil(o);
+    this.saveState();
   }
 
   async run({ announce = true, after } = {}) {

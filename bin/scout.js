@@ -72,7 +72,8 @@ async function arena() {
     console.error(`joined ${room} as ${j.membership?.member_id || j.member?.id || j.member_id || 'member'} (${j.membership?.principal_id || 'guest'})`);
   }
   const prices = { ...DEFAULT_PRICES, ...(process.env.SCOUT_PRICES ? JSON.parse(process.env.SCOUT_PRICES) : {}) };
-  await new ScoutSeller({ client: sn, prices }).run({ announce: !has('quiet') });
+  mkdirSync('.scout', { recursive: true });
+  await new ScoutSeller({ client: sn, prices, statePath: `.scout/orders-${room}.json` }).run({ announce: !has('quiet') });
 }
 
 function need(v, name) {

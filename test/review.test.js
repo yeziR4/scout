@@ -64,3 +64,10 @@ test('smoke call only picks tools that are safe to call blind', async () => {
   assert.equal(pickSmokeTool([{ name: 'do_it', annotations: { readOnlyHint: true }, inputSchema: {} }]).name, 'do_it');
   assert.equal(pickSmokeTool([{ name: 'get_x', annotations: { destructiveHint: true }, inputSchema: {} }]), null);
 });
+
+test('a SharedNet room service is judged as one, not as a missing install', () => {
+  const text = '# FieldTrace\n\nFieldTrace reshapes one agent\'s JSON to fit another agent\'s schema, with a receipt. There is nothing to install.\n\n## Order\n\n```sh\nsharednet upload request.json\nsharednet pay p_x 5 --memo ord_1 --room\nsharednet say \'{"type":"fieldtrace.order.v1"}\'\n```\n\nUndelivered paid work is always refunded.';
+  const f = extractFacts(text, { name: 'fieldtrace' });
+  assert.equal(f.kind, 'room_service');
+  assert.ok(f.has_payment_steps && f.has_refund_policy);
+});

@@ -119,6 +119,8 @@ export function extractToolNames(text) {
 
 export function productKind(text, f) {
   const intro = `${f.first_paragraph} ${f.headings.slice(0, 2).join(' ')}`;
+  // Operated by messages and payments in a SharedNet room: no package, no endpoint.
+  if (f.room_protocol) return 'room_service';
   if (/\b(framework|library|sdk)\b|\bbuild(ing)? (mcp )?(servers|agents|apps)\b/i.test(intro)) return 'framework';
   if (f.has_mcp_config || f.mcp_urls.length || /\bmcp server\b/i.test(intro)) return 'mcp_server';
   if (/\b(terminal|command[- ]line|cli)\b/i.test(intro) || f.command_lines >= 3) return 'cli';
@@ -150,6 +152,11 @@ export function extractFacts(text, { name = '' } = {}) {
     mentions_pricing: /credit|price|cost|\bfree\b|per call/i.test(text),
     mentions_errors: /error|fail|troubleshoot|limit/i.test(text),
     first_paragraph: firstProse(text),
+    room_protocol: /\bsharednet\s+(say|pay|upload|join)\b/i.test(text) || (/sharednet/i.test(text) && /\/api\/v1\/(rooms|credits)/i.test(text)),
+    room_commands: (text.match(/\bsharednet\s+(say|pay|upload|join|download)\b/gi) || []).length,
+    has_payment_steps: /\b(pay|transfer)\b[^\n]{0,80}\b(memo|credits?)\b/i.test(text),
+    has_refund_policy: /\brefund/i.test(text),
+    no_install_needed: /nothing to install|no install|no signup|no key/i.test(text),
   };
   f.kind = productKind(text, f);
   return f;
@@ -184,8 +191,13 @@ function scoreAreas(text, f, live) {
   // 2. Callability: is there a copy-paste way in? Judged by what the product is.
   {
     let s = 0; const fixes = []; const notes = [`kind: ${f.kind}`];
-    if (f.install_command) { s += 8; notes.push(`install: ${f.install_command}`); } else fixes.push('Add a one-line copy-paste install/run command (e.g. `npx -y <pkg>` or `uv add <pkg>`).');
-    if (f.kind === 'mcp_server') {
+    if (f.kind === 'room_service') {
+      if (f.room_commands >= 2 || f.no_install_needed) { s += 8; notes.push('used through the sharednet CLI/API; no install'); } else fixes.push('Show the exact `sharednet` commands a buyer runs, in order.');
+    } else if (f.install_command) { s += 8; notes.push(`install: ${f.install_command}`); } else fixes.push('Add a one-line copy-paste install/run command (e.g. `npx -y <pkg>` or `uv add <pkg>`).');
+    if (f.kind === 'room_service') {
+      if (/"type"\s*:\s*"[\w.-]+"|\border (format|message)\b|\bsay\b/i.test(text)) s += 7; else fixes.push('Define the order message format (one example message a buyer can copy).');
+      if (f.has_payment_steps) s += 5; else fixes.push('Say how to pay: the payee id, amount and memo, e.g. `sharednet pay p_… 5 --memo <order> --room`.');
+    } else if (f.kind === 'mcp_server') {
       if (f.has_mcp_config || f.mcp_urls.length) s += 7; else fixes.push('Add an MCP config snippet (`claude mcp add ...` or an `mcpServers` JSON block).');
       if (f.has_cli_usage || f.mcp_urls.length) s += 5; else fixes.push('Show one real launch command.');
     } else if (f.kind === 'framework') {
@@ -212,7 +224,8 @@ function scoreAreas(text, f, live) {
   // 4. Agent-readiness: interface, auth, errors, pricing documented.
   {
     let s = 0; const fixes = []; const notes = [];
-    const iface = f.kind === 'mcp_server' ? f.tool_names.length > 0
+    const iface = f.kind === 'room_service' ? f.room_commands > 0 || /"type"\s*:/.test(text)
+      : f.kind === 'mcp_server' ? f.tool_names.length > 0
       : f.kind === 'framework' ? f.has_code_api || f.tool_names.length > 0
         : f.has_flags || f.command_lines > 0 || f.tool_names.length > 0;
     if (f.tool_names.length) notes.push(`tools named: ${f.tool_names.slice(0, 8).join(', ')}`);
@@ -227,7 +240,11 @@ function scoreAreas(text, f, live) {
   {
     let s = 0; const fixes = []; const notes = [];
     const base = f.install_command ? 10 : 4;
-    if (!live) {
+    if (!live && f.kind === 'room_service') {
+      s = 10 + (f.has_refund_policy ? 4 : 0);
+      notes.push('room service: orders run in a SharedNet room, not called by Scout');
+      if (!f.has_refund_policy) fixes.push('State a refund policy for failed or unmatched payments; buyers pay blind otherwise.');
+    } else if (!live) {
       if (f.kind === 'mcp_server') {
         s = base;
         notes.push('no public MCP endpoint in the doc; installable only');
@@ -278,6 +295,8 @@ function checkedList(doc, f, live) {
     not.push('tools behind auth');
   } else if (live) {
     verified.push(`endpoint ${live.url} did not answer MCP initialize`);
+  } else if (f.kind === 'room_service') {
+    not.push('no order was placed; delivery and refunds not exercised');
   } else {
     not.push('no hosted endpoint to call; install path not executed');
   }
@@ -286,7 +305,8 @@ function checkedList(doc, f, live) {
 }
 
 function verdict(score, f, live) {
-  const how = live?.reachable ? `live MCP with ${live.tools.length} tools`
+  const how = f.kind === 'room_service' ? 'room service via the sharednet CLI'
+    : live?.reachable ? `live MCP with ${live.tools.length} tools`
     : live?.auth_required ? `live MCP behind auth`
     : f.install_command ? `installable via \`${f.install_command}\``
       : 'no clear way to call it';
