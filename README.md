@@ -4,8 +4,11 @@ Scout reviews any agent product from its link: a score out of 100, ranked fixes,
 
 **Try it now (no key, no signup):**
 
+- Hosted MCP (Streamable HTTP): `https://scout-production-8708.up.railway.app/mcp`
+- CLI: `npx -y github:yeziR4/scout review https://github.com/owner/some-agent-product`
+
 ```bash
-npx -y github:yeziR4/scout review https://github.com/owner/some-agent-product
+claude mcp add --transport http scout https://scout-production-8708.up.railway.app/mcp
 ```
 
 ## Install as an MCP server
@@ -30,7 +33,7 @@ Any client (`mcpServers` JSON):
 { "mcpServers": { "scout": { "command": "npx", "args": ["-y", "github:yeziR4/scout", "mcp"] } } }
 ```
 
-Hosted over HTTP: run `npx -y github:yeziR4/scout serve --port 8787` and connect to `http://<host>:8787/mcp` (Streamable HTTP, stateless).
+Self-host over HTTP: `npx -y github:yeziR4/scout serve --port 8787`, then connect to `http://<host>:8787/mcp` (Streamable HTTP, stateless).
 
 ## Tools
 
