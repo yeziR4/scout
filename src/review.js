@@ -40,6 +40,7 @@ export async function reviewProduct(link, { probe = true } = {}) {
     verdict: verdict(score, facts, live),
     areas: areas.map(({ area, score: s, max, notes }) => ({ area, score: s, max, notes })),
     top_fixes: fixes.slice(0, 5),
+    checked: checkedList(doc, facts, live),
     facts,
     live_probe: live,
   };
@@ -246,6 +247,8 @@ function scoreAreas(text, f, live) {
         s += Math.round(6 * (1 - bad.length / tools.length));
         for (const t of bad.slice(0, 3)) fixes.push(`Tool \`${t.name}\`: ${t.issues.join(', ')}.`);
       }
+      if (live.smoke?.ok) notes.push(`real call to ${live.smoke.tool} returned a result in ${live.smoke.ms} ms`);
+      else if (live.smoke && !live.smoke.skipped) { s -= 4; notes.push(`real call to ${live.smoke.tool} failed`); }
       for (const i of live.issues.slice(0, 2)) fixes.push(i);
     } else if (live.auth_required) {
       s = f.mentions_auth ? 16 : 13;
@@ -259,6 +262,27 @@ function scoreAreas(text, f, live) {
     areas.push({ area: 'live_check', score: Math.min(s, 20), max: 20, notes, fixes });
   }
   return areas;
+}
+
+// Say exactly what was and was not verified, so nobody reads the score as a correctness guarantee.
+function checkedList(doc, f, live) {
+  const verified = [`read ${doc.source}`];
+  const not = ['whether outputs are correct for real tasks'];
+  if (live?.reachable) {
+    verified.push(`MCP initialize + tools/list at ${live.url} (${live.tools.length} tools)`);
+    if (live.smoke?.ok) verified.push(`one real call: ${live.smoke.tool}(${JSON.stringify(live.smoke.args)}) returned a result`);
+    else if (live.smoke?.skipped) not.push('no tool was safe to call blind, so no real call was made');
+    else if (live.smoke) verified.push(`one real call: ${live.smoke.tool} FAILED (${live.smoke.error})`);
+  } else if (live?.auth_required) {
+    verified.push(`endpoint ${live.url} answers and requires auth`);
+    not.push('tools behind auth');
+  } else if (live) {
+    verified.push(`endpoint ${live.url} did not answer MCP initialize`);
+  } else {
+    not.push('no hosted endpoint to call; install path not executed');
+  }
+  if (f.install_command && !live?.reachable) not.push(`install command \`${f.install_command}\` not executed`);
+  return { verified, not_verified: not };
 }
 
 function verdict(score, f, live) {
@@ -275,6 +299,10 @@ function verdict(score, f, live) {
 export function formatReview(r) {
   const lines = [`Scout review: ${r.link}`, `Score ${r.score}/100 (${r.grade ?? 'F'}). ${r.verdict}`];
   if (r.areas) lines.push(r.areas.map((a) => `${a.area} ${a.score}/${a.max}`).join(' | '));
+  if (r.checked) {
+    lines.push(`Verified: ${r.checked.verified.join('; ')}.`);
+    lines.push(`Not verified: ${r.checked.not_verified.join('; ')}.`);
+  }
   if (r.top_fixes?.length) {
     lines.push('Top fixes:');
     r.top_fixes.forEach((f, i) => lines.push(`${i + 1}. ${f}`));

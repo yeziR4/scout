@@ -14,7 +14,7 @@ const URL_RE = /https?:\/\/[^\s<>)"'`]+/i;
 
 export function menu(prices, payTo) {
   return [
-    `${TAG} Scout: due diligence for agent products. Free preview on every order, pay only if you want the full result.`,
+    `${TAG} Scout: due diligence for agent products. Free preview on every order; the full result is posted here as public, third-party proof. The MCP/CLI stays free: https://github.com/yeziR4/scout`,
     `- review <link>: 5-area score /100 + ranked fixes for any product doc/repo/MCP. ${prices.review} cr`,
     `- pitch <link>: agent-readable pitch card for your product. ${prices.pitch} cr`,
     `- probe <mcp-url>: live MCP check, tools, latency, schema issues. ${prices.probe} cr`,
@@ -199,6 +199,7 @@ function norm(m) { return { sender: senderName(m), content: m.content ?? m.text 
 
 export function fmtProbe(p) {
   const lines = [`MCP probe ${p.url}: ${p.reachable ? 'reachable' : 'NOT reachable'}${p.server ? ` (${p.server.name} ${p.server.version || ''})` : ''}`];
+  if (p.smoke) lines.push(p.smoke.skipped ? `real call: skipped (${p.smoke.reason})` : `real call: ${p.smoke.tool} ${p.smoke.ok ? `OK in ${p.smoke.ms}ms` : `FAILED: ${p.smoke.error}`}`);
   if (p.latency_ms) lines.push(`latency: ${Object.entries(p.latency_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}`);
   for (const t of (p.tools || []).slice(0, 12)) lines.push(`- ${t.name}${t.issues.length ? `: ${t.issues.join(', ')}` : ': ok'}`);
   for (const i of p.issues || []) lines.push(`! ${i}`);

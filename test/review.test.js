@@ -46,3 +46,21 @@ test('a framework is judged as a framework', () => {
   assert.equal(f.kind, 'framework');
   assert.equal(f.has_code_api, true);
 });
+
+test('smoke call only picks tools that are safe to call blind', async () => {
+  const { pickSmokeTool, sampleArgs } = await import('../src/probe.js');
+  const tools = [
+    { name: 'delete_repo', inputSchema: { required: [] } },
+    { name: 'browser_click', inputSchema: { required: [] } },
+    { name: 'get_file', inputSchema: { properties: { blob: { type: 'object' } }, required: ['blob'] } },
+    { name: 'search_docs', inputSchema: { properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1 } }, required: ['query', 'limit'] } },
+    { name: 'list_things', inputSchema: { required: [] } },
+  ];
+  assert.equal(pickSmokeTool(tools).name, 'list_things');
+  assert.equal(pickSmokeTool(tools.slice(0, 4)).name, 'search_docs');
+  assert.deepEqual(sampleArgs(tools[3]), { query: 'react', limit: 1 });
+  assert.equal(pickSmokeTool(tools.slice(0, 3)), null);
+  // An explicit read-only annotation wins over the name; destructive never runs.
+  assert.equal(pickSmokeTool([{ name: 'do_it', annotations: { readOnlyHint: true }, inputSchema: {} }]).name, 'do_it');
+  assert.equal(pickSmokeTool([{ name: 'get_x', annotations: { destructiveHint: true }, inputSchema: {} }]), null);
+});
