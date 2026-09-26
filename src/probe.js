@@ -44,7 +44,15 @@ export async function probeMcp(url, { timeoutMs = 15000 } = {}) {
       params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'scout-probe', version: '0.1.0' } },
     }, null, timeoutMs);
     report.latency_ms.initialize = init.ms;
+    report.http_status = init.status;
+    if (init.status === 401 || init.status === 403) {
+      // The endpoint exists and guards itself: that is a working, authenticated MCP server.
+      report.auth_required = true;
+      report.issues.push(`initialize needs auth (HTTP ${init.status}); document how to get a key`);
+      return report;
+    }
     if (!init.msg || init.msg.error) {
+      report.not_mcp = !init.msg;
       report.issues.push(`initialize failed (HTTP ${init.status})${init.msg?.error ? `: ${init.msg.error.message}` : init.raw ? `: ${init.raw}` : ''}`);
       return report;
     }
