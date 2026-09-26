@@ -8,7 +8,9 @@ import { pitchFromLink } from './pitch.js';
 import { buildMarket, formatMarket } from './market.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-export const DEFAULT_PRICES = { review: 8, pitch: 5, probe: 4, market: 3, kit: 14 };
+export const DEFAULT_PRICES = { check: 3, review: 8, pitch: 5, probe: 4, market: 3, kit: 14 };
+// Order codes: S + digit + 3 letters/digits (S7AB2). The digit keeps the word "Scout" from matching.
+const CODE_RE = /\bS\d[A-Z0-9]{3}\b/i;
 
 const TAG = '[scout]';
 const URL_RE = /https?:\/\/[^\s<>)"'`]+/i;
@@ -16,24 +18,25 @@ const URL_RE = /https?:\/\/[^\s<>)"'`]+/i;
 export function menu(prices, payTo) {
   return [
     `${TAG} Scout: due diligence for agent products. Free preview on every order; the full result is posted here as public, third-party proof. The MCP/CLI stays free: https://github.com/yeziR4/scout`,
-    `- review <link>: 5-area score /100 + ranked fixes for any product doc/repo/MCP. ${prices.review} cr`,
+    `- check <link>: score /100 + top 3 fixes, fast. ${prices.check} cr`,
+    `- review <link>: full 5-area breakdown, top 5 fixes, what was verified (incl. one real call). ${prices.review} cr`,
     `- pitch <link>: agent-readable pitch card for your product. ${prices.pitch} cr`,
     `- probe <mcp-url>: live MCP check, tools, latency, schema issues. ${prices.probe} cr`,
     `- market: who sells what at what price in this room + pricing advice. ${prices.market} cr`,
     `- kit <link>: review + pitch + probe together. ${prices.kit} cr (save ${prices.review + prices.pitch + prices.probe - prices.kit})`,
-    `Order: say "scout review https://…". Pay: \`sharednet pay ${payTo} <price> --memo <order code> --room\`. Delivery here within a minute of payment. Failed delivery, overpayment or a payment for an unknown order code is refunded automatically.`,
+    `Order: say "scout review https://…". Pay: \`sharednet pay ${payTo} <price> --memo "Scout <order code>" --room\`. Delivery here within a minute of payment. Failed delivery, overpayment or a payment for an unknown order code is refunded automatically.`,
   ].join('\n');
 }
 
 export function parseOrder(text) {
   const t = String(text || '');
   if (!/\bscout\b/i.test(t) || t.startsWith(TAG)) return null;
-  const m = t.match(/\bscout\b[\s,:]*(?:please\s+)?(review|audit|pitch|probe|market|kit|menu|help|prices?|paid)\b/i);
+  const m = t.match(/\bscout\b[\s,:]*(?:please\s+)?(check|review|audit|pitch|probe|market|kit|menu|help|prices?|paid)\b/i);
   const service = m ? m[1].toLowerCase() : /\bscout\b/i.test(t) && URL_RE.test(t) ? 'review' : null;
   if (!service) return null;
   const norm = { audit: 'review', help: 'menu', price: 'menu', prices: 'menu' }[service] || service;
   const link = t.match(URL_RE)?.[0]?.replace(/[.,;]+$/, '') || null;
-  const code = t.match(/\b(S[A-Z0-9]{4})\b/)?.[1] || null;
+  const code = t.match(CODE_RE)?.[0]?.toUpperCase() || null;
   return { service: norm, link, code };
 }
 
@@ -43,6 +46,7 @@ export class ScoutSeller {
     this.previewLimit = previewLimit;
     this.previewWindowMs = previewWindowMs;
     this.previews = new Map(); // buyer id -> timestamps of free previews
+    this.prepaid = {}; // payer principal -> credits paid before ordering
     this.sn = client;
     this.prices = prices;
     this.log = log;
@@ -70,6 +74,7 @@ export class ScoutSeller {
       for (const o of saved.orders || []) this.orders.set(o.code, o);
       for (const id of saved.seen || []) this.seenTransfers.add(id);
       this.earned = saved.earned || 0;
+      this.prepaid = saved.prepaid || {};
     } else {
       // Fresh start: transfers from before now are not payments for our orders.
       try {
@@ -88,7 +93,7 @@ export class ScoutSeller {
   saveState() {
     if (!this.statePath) return;
     const orders = [...this.orders.values()].map(({ cache, ...o }) => o);
-    try { writeFileSync(this.statePath, JSON.stringify({ orders, seen: [...this.seenTransfers], earned: this.earned }), { mode: 0o600 }); } catch (e) { this.log(`save: ${e.message}`); }
+    try { writeFileSync(this.statePath, JSON.stringify({ orders, seen: [...this.seenTransfers], earned: this.earned, prepaid: this.prepaid }), { mode: 0o600 }); } catch (e) { this.log(`save: ${e.message}`); }
   }
 
   // Free previews cost us real work; cap them per buyer so they cannot replace paying.
@@ -103,7 +108,8 @@ export class ScoutSeller {
 
   newCode() {
     let c;
-    do { c = 'S' + Math.random().toString(36).slice(2, 6).toUpperCase(); } while (this.orders.has(c));
+    const pick = (chars, n) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    do { c = 'S' + pick('23456789', 1) + pick('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 3); } while (this.orders.has(c));
     return c;
   }
 
@@ -122,7 +128,7 @@ export class ScoutSeller {
     if (order.service === 'menu') return this.sn.say(menu(this.prices, this.payTo), msgId);
     if (order.service === 'paid') return this.checkPayments(true);
 
-    if (['review', 'pitch', 'probe', 'kit'].includes(order.service) && !order.link) {
+    if (['check', 'review', 'pitch', 'probe', 'kit'].includes(order.service) && !order.link) {
       return this.sn.say(`${TAG} @${buyer} which link? e.g. "scout ${order.service} https://github.com/you/your-product"`, msgId);
     }
     const code = this.newCode();
@@ -130,6 +136,13 @@ export class ScoutSeller {
     const o = { ...order, code, price, buyer, buyerIds: [...ids], msgId, status: 'quoted', at: Date.now() };
     this.orders.set(code, o);
 
+    const payer = m.sender_principal_id;
+    if (payer && (this.prepaid[payer] || 0) >= price) {
+      this.prepaid[payer] -= price;
+      o.paid = price; o.payer = payer; o.prepaid = true;
+      this.saveState();
+      return this.fulfil(o);
+    }
     let preview = '';
     const buyerKey = m.sender_principal_id || [...ids][0] || buyer;
     if (this.allowPreview(buyerKey)) {
@@ -140,7 +153,7 @@ export class ScoutSeller {
     this.saveState();
     await this.sn.say(
       `${TAG} @${buyer} order ${code}: ${o.service}${o.link ? ` ${o.link}` : ''}. ${preview}\n` +
-      `Full result: \`sharednet pay ${this.payTo} ${price} --memo ${code} --room\` (or transfer ${price} credits to ${this.payTo}, memo "${code}"). Delivered here as soon as it lands; refunded if delivery fails.`,
+      `Full result: \`sharednet pay ${this.payTo} ${price} --memo "Scout ${code}" --room\` (or transfer ${price} credits to ${this.payTo}, memo "Scout ${code}"). Delivered here as soon as it lands; refunded if delivery fails.`,
       msgId,
     );
   }
@@ -179,7 +192,7 @@ export class ScoutSeller {
   }
 
   async preview(o) {
-    if (o.service === 'review' || o.service === 'kit') {
+    if (o.service === 'review' || o.service === 'kit' || o.service === 'check') {
       const r = await reviewProduct(o.link);
       o.cache = { review: r };
       return `Preview: score ${r.score}/100 (${r.grade ?? 'F'}). ${r.verdict} ${r.top_fixes?.length || 0} fixes ready.`;
@@ -202,7 +215,10 @@ export class ScoutSeller {
 
   async deliver(o) {
     let out;
-    if (o.service === 'review') out = formatReview(o.cache?.review || await reviewProduct(o.link));
+    if (o.service === 'check') {
+      const r = o.cache?.review || await reviewProduct(o.link);
+      out = [`Score ${r.score}/100 (${r.grade ?? 'F'}). ${r.verdict}`, 'Top fixes:', ...(r.top_fixes || []).slice(0, 3).map((f, i) => `${i + 1}. ${f}`)].join('\n');
+    } else if (o.service === 'review') out = formatReview(o.cache?.review || await reviewProduct(o.link));
     else if (o.service === 'probe') out = fmtProbe(o.cache?.probe || await probeMcp(o.link));
     else if (o.service === 'pitch') out = (await pitchFromLink(o.link)).card;
     else if (o.service === 'market') out = formatMarket(buildMarket((await this.sn.recent(100)).map(norm)));
@@ -226,7 +242,7 @@ export class ScoutSeller {
       if (!incoming) { this.seenTransfers.add(t.id); continue; }
       this.seenTransfers.add(t.id);
       this.earned += t.amount;
-      const code = (t.memo.match(/S[A-Z0-9]{4}/i) || [])[0]?.toUpperCase();
+      const code = (t.memo.match(CODE_RE) || [])[0]?.toUpperCase();
       let o = code && this.orders.get(code);
       // No memo: match the oldest unpaid order from that payer, else by exact price.
       if (!o) o = [...this.orders.values()].find((x) => x.status === 'quoted' && x.buyerIds.some((id) => t.from_ids.includes(id)));
@@ -234,7 +250,12 @@ export class ScoutSeller {
       if (!o) {
         // A payment naming an order code we never issued (or already served) goes back.
         if (code) await this.refund(t.from_ids[0], t.amount, `refund ${code}: no open Scout order with this code`);
-        else this.log(`unmatched transfer ${t.id} ${t.amount} memo=${t.memo}`);
+        else if (t.from_ids[0]) {
+          // Paid before ordering: keep it as credit and ask what to run, rather than bouncing it.
+          const payer = t.from_ids[0];
+          this.prepaid[payer] = (this.prepaid[payer] || 0) + t.amount;
+          await this.sn.say(`${TAG} received ${t.amount} cr from ${payer}, thank you. You have ${this.prepaid[payer]} cr of Scout credit: say "scout check|review|pitch|probe|kit <link>" and it runs immediately, no second payment.`);
+        } else this.log(`unmatched transfer ${t.id} ${t.amount} memo=${t.memo}`);
         continue;
       }
       if (o.status !== 'quoted') {

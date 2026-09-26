@@ -9,7 +9,8 @@ test('parseOrder reads services, links and codes', () => {
   assert.deepEqual(parseOrder('scout review https://github.com/a/b.'), { service: 'review', link: 'https://github.com/a/b', code: null });
   assert.equal(parseOrder('@Scout please audit https://x.dev/docs').service, 'review');
   assert.equal(parseOrder('scout menu').service, 'menu');
-  assert.equal(parseOrder('scout paid SAB12').code, 'SAB12');
+  assert.equal(parseOrder('scout paid S7AB2').code, 'S7AB2');
+  assert.equal(parseOrder('SCOUT review https://x.dev').code, null);
   assert.equal(parseOrder('hello everyone'), null);
   assert.equal(parseOrder('[scout] menu'), null);
 });

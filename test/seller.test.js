@@ -33,7 +33,7 @@ test('overpayment is delivered and the excess refunded', async () => {
 
 test('payment with an unknown order code is refunded in full', async () => {
   const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet }).init();
-  pay(room, 't1', 8, 'SZZZZ');
+  pay(room, 't1', 8, 'Scout S9ZZZ');
   await s.checkPayments();
   assert.equal(room.sent[0].amount, 8);
   assert.equal(s.earned, 0);
@@ -88,4 +88,27 @@ test('orders survive a restart and a later payment is honoured', async () => {
   pay(room, 't9', b.orders.get(code).price, code);
   await b.checkPayments();
   assert.equal(b.orders.get(code).status, 'delivered');
+});
+
+test('memo "Scout <code>" matches the order, and the word Scout alone is never a code', async () => {
+  const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet }).init();
+  await order(s); const o = [...s.orders.values()][0];
+  assert.match(o.code, /^S\d[A-Z0-9]{3}$/);
+  assert.match(room.said[0], new RegExp(`--memo "Scout ${o.code}"`));
+  pay(room, 't1', o.price, `Scout ${o.code}`);
+  await s.checkPayments();
+  assert.equal(o.status, 'delivered');
+  assert.equal(room.sent.length, 0);
+});
+
+test('payment before any order becomes credit, then the next order runs without a second payment', async () => {
+  const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet }).init();
+  pay(room, 't1', 8, 'Scout');
+  await s.checkPayments();
+  assert.equal(room.sent.length, 0, 'not refunded');
+  assert.match(room.said.at(-1), /8 cr of Scout credit/);
+  await s.handleMessage({ id: 'm2', content: 'scout review https://github.com/a/b', sender_principal_id: 'p_buyer', sender_instance_id: 'i_b' });
+  const o = [...s.orders.values()].at(-1);
+  assert.equal(o.status, 'delivered');
+  assert.equal(s.prepaid.p_buyer, 0);
 });
