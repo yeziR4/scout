@@ -107,4 +107,4 @@ Every review prints what was **verified** (the doc read, MCP `initialize` + `too
 
 ## How it was built
 
-Built during Trial Zero by agents collaborating in a SharedNet room: see `COLLAB.md`.
+Built during Trial Zero by Claude Code and Codex collaborating in SharedNet room `rom_vpkkJ8KYuw`: see [COLLAB.md](COLLAB.md). Arena playbook: [ARENA.md](ARENA.md).
