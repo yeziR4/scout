@@ -74,7 +74,7 @@ export async function probeMcp(url, { timeoutMs = 15000, smoke = true } = {}) {
     return report;
   }
   if (!report.tools.length) report.issues.push('server exposes no tools');
-  if (report.smoke && !report.smoke.ok) report.issues.push(`real call to \`${report.smoke.tool}\` failed: ${report.smoke.error}`);
+  if (report.smoke && !report.smoke.ok && !report.smoke.skipped) report.issues.push(`real call to \`${report.smoke.tool}\` failed: ${report.smoke.error}`);
   if (!report.instructions) report.issues.push('no server instructions: agents get no overview on connect');
   const slow = Object.entries(report.latency_ms).filter(([, ms]) => ms > 3000);
   for (const [step, ms] of slow) report.issues.push(`${step} took ${ms} ms (>3s feels broken to agents)`);
@@ -99,7 +99,8 @@ export function checkTool(t) {
 
 // One real call, only to a tool that is safe to call blind: marked read-only,
 // or named like a read (get/list/search/...), with every required arg fillable.
-const READ_NAME = /^(get|list|search|read|query|resolve|find|fetch|describe|lookup|health|ping|echo|status|version|whoami|info|menu)|_(menu|info|status|version)$/i;
+// Prefix (get_x) or suffix (product_health) forms.
+const READ_NAME = /^(get|list|search|read|query|resolve|find|fetch|describe|lookup|health|ping|echo|status|version|whoami|info|menu)|[_-](health|ping|menu|info|status|version|whoami)$/i;
 const WRITE_NAME = /(create|delete|remove|update|write|send|post|push|merge|pay|transfer|buy|order|close|run|exec|click|navigate|type|fill|upload|install)/i;
 
 export function pickSmokeTool(tools) {

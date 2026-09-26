@@ -9,7 +9,9 @@ const MCP_CONFIG_RE = /"mcpServers"|"servers"\s*:|claude\s+mcp\s+add|codex\s+mcp
 const URL_RE = /https?:\/\/[^\s"'`)<>\]]+/gi;
 const CLI_USAGE_RE = /^\s*(\$\s*)?[a-z][\w-]*\s+(--?[a-z]|[a-z][\w-]*\s)/im;
 // Hosts and paths that mention MCP but are docs, badges or one-click install redirects, never endpoints.
-const NON_ENDPOINT_HOST = /(^|\.)(github\.com|githubusercontent\.com|shields\.io|vscode\.dev|visualstudio\.com|cursor\.com|aka\.ms|npmjs\.com|pypi\.org|goreportcard\.com|lmstudio\.ai|github\.io|localhost|127\.0\.0\.1|0\.0\.0\.0)$/i;
+const NON_ENDPOINT_HOST = /(^|\.)(github\.com|githubusercontent\.com|shields\.io|vscode\.dev|visualstudio\.com|cursor\.com|aka\.ms|npmjs\.com|pypi\.org|goreportcard\.com|lmstudio\.ai|github\.io|localhost|127\.0\.0\.1|0\.0\.0\.0|example\.(com|org|net))$/i;
+
+const URGENT = '\u0000urgent:';
 
 export async function reviewProduct(link, { probe = true } = {}) {
   const doc = await fetchProductDoc(link);
@@ -24,12 +26,14 @@ export async function reviewProduct(link, { probe = true } = {}) {
   }
   const text = doc.text;
   const facts = extractFacts(text, { name: productName(link) });
+  facts.link = link;
   let live = null;
   if (probe && facts.mcp_urls.length) live = await probeCandidates(facts.mcp_urls.slice(0, 2));
   const areas = scoreAreas(text, facts, live);
   const score = areas.reduce((s, a) => s + a.score, 0);
-  const fixes = areas.flatMap((a) => a.fixes.map((f) => ({ area: a.area, gap: a.max - a.score, fix: f })))
-    .sort((a, b) => b.gap - a.gap)
+  // Urgent fixes (things that break agents today) come first, then by points missing.
+  const fixes = areas.flatMap((a) => a.fixes.map((f) => ({ area: a.area, gap: a.max - a.score, urgent: f.startsWith(URGENT), fix: f.replace(URGENT, '') })))
+    .sort((a, b) => (b.urgent - a.urgent) || (b.gap - a.gap))
     .map((f) => `[${f.area}] ${f.fix}`);
   return {
     link,
@@ -263,6 +267,11 @@ function scoreAreas(text, f, live) {
       else if (tools.length) {
         s += Math.round(6 * (1 - bad.length / tools.length));
         for (const t of bad.slice(0, 3)) fixes.push(`Tool \`${t.name}\`: ${t.issues.join(', ')}.`);
+      }
+      const linkHost = (() => { try { return new URL(f.link || '').hostname; } catch { return ''; } })();
+      const liveHost = new URL(live.url).hostname;
+      if (/\.vercel\.app$|\.netlify\.app$|\.pages\.dev$/.test(liveHost) && linkHost && liveHost !== linkHost && !/github/.test(linkHost)) {
+        fixes.push(`${URGENT}Your page points agents at ${liveHost}, not ${linkHost}; preview URLs change on redeploy, so list the stable domain.`);
       }
       if (live.smoke?.ok) notes.push(`real call to ${live.smoke.tool} returned a result in ${live.smoke.ms} ms`);
       else if (live.smoke && !live.smoke.skipped) { s -= 4; notes.push(`real call to ${live.smoke.tool} failed`); }

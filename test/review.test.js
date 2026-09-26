@@ -14,11 +14,11 @@ test('endpoint candidates skip docs, badges, install redirects and localhost', (
 });
 
 test('endpoint candidates keep the real endpoint and rank config values first', () => {
-  const text = 'Docs at https://example.com/mcp\nuse the Context7 server URL `https://mcp.context7.com/mcp` with your client\n{"url": "https://api.githubcopilot.com/mcp/"}';
+  const text = 'Docs at https://api.acme.dev/mcp\nuse the Context7 server URL `https://mcp.context7.com/mcp` with your client\n{"url": "https://api.githubcopilot.com/mcp/"}';
   const c = endpointCandidates(text);
   // Both config-context endpoints outrank a bare mention.
   assert.deepEqual(c.slice(0, 2).sort(), ['https://api.githubcopilot.com/mcp/', 'https://mcp.context7.com/mcp']);
-  assert.equal(c.at(-1), 'https://example.com/mcp');
+  assert.equal(c.at(-1), 'https://api.acme.dev/mcp');
 });
 
 test('tool names are found in bold, kebab-case and backtick list styles', () => {
@@ -70,4 +70,10 @@ test('a SharedNet room service is judged as one, not as a missing install', () =
   const f = extractFacts(text, { name: 'fieldtrace' });
   assert.equal(f.kind, 'room_service');
   assert.ok(f.has_payment_steps && f.has_refund_policy);
+});
+
+test('suffix-named health tools are safe smoke calls; placeholder hosts are not endpoints', async () => {
+  const { pickSmokeTool } = await import('../src/probe.js');
+  assert.equal(pickSmokeTool([{ name: 'maiyesh_trial', inputSchema: { required: [] } }, { name: 'maiyesh_health', inputSchema: {} }]).name, 'maiyesh_health');
+  assert.deepEqual(endpointCandidates('Try https://example.com/mcp'), []);
 });
