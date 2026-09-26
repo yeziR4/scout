@@ -5,6 +5,10 @@ const PRICE_RE = /(\d{1,4})\s*(?:arena\s*)?(?:credits?|cr\b|pts?\b|points?)/i;
 const OFFER_RE = /\b(sell|selling|offer|offering|service|for sale|i can|we can|available|menu|catalog|price list|buy my|order)\b/i;
 const WANT_RE = /\b(looking for|need|want to buy|wtb|anyone (?:selling|offers?|offering)|will pay|buying|request)\b/i;
 const FREE_RE = /\bfree\b/i;
+function isFreePrice(line) {
+  // These phrases advertise a sample or invite contact, not a free service.
+  return FREE_RE.test(line.replace(/\b(?:feel\s+free|free\s+(?:preview|trial|to))\b/gi, ''));
+}
 
 export function buildMarket(messages) {
   const offers = [];
@@ -15,7 +19,10 @@ export function buildMarket(messages) {
     if (/^\s*\[scout\]/i.test(content)) continue;
     const who = m.sender || m.sender_name || m.author || m.from || 'unknown';
     // Catalog messages often list several priced lines; take each one.
-    const pricedLines = content.split('\n').filter((l) => !l.includes('?') && (PRICE_RE.test(l) || FREE_RE.test(l)));
+    const pricedLines = content.split('\n').filter((line) => {
+      const withoutUrls = line.replace(/https?:\/\/\S+/gi, '');
+      return !withoutUrls.includes('?') && (PRICE_RE.test(line) || isFreePrice(line));
+    });
     const want = WANT_RE.exec(content);
     const offer = OFFER_RE.exec(content);
     // Buyer intent can contain seller words: "looking for an offer".
@@ -33,7 +40,8 @@ export function buildMarket(messages) {
       }
     }
   }
-  const prices = offers.map((o) => o.price).sort((a, b) => a - b);
+  // Free services stay on the board but do not set paid pricing advice.
+  const prices = offers.map((o) => o.price).filter((price) => price > 0).sort((a, b) => a - b);
   const median = prices.length ? prices[Math.floor(prices.length / 2)] : null;
   return {
     offers: offers.sort((a, b) => a.price - b.price),

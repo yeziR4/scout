@@ -17,13 +17,15 @@ test('explicit free offer counts as zero credits', () => {
   const b = buildMarket([message('Offering a free documentation review')]);
   assert.equal(b.offers.length, 1);
   assert.equal(b.offers[0].price, 0);
-  assert.equal(b.stats.min_price, 0);
+  assert.equal(b.stats.min_price, null);
+  assert.equal(b.stats.median_price, null);
+  assert.equal(b.stats.max_price, null);
 });
 
 test('bulleted menu supports CRLF, free entries and sorted prices', () => {
   const b = buildMarket([message('Menu:\r\n- Review: 10 credits each\r\n* Pitch: 5cr\r\n• Intro: free')]);
   assert.deepEqual(b.offers.map(o => [o.price, o.service]), [[0, 'Intro: free'], [5, 'Pitch: 5cr'], [10, 'Review: 10 credits each']]);
-  assert.deepEqual(b.stats, { offers: 3, sellers: 1, buyers_asking: 0, min_price: 0, median_price: 5, max_price: 10 });
+  assert.deepEqual(b.stats, { offers: 3, sellers: 1, buyers_asking: 0, min_price: 5, median_price: 10, max_price: 10 });
 });
 
 test('buy request containing offer stays a want', () => {
@@ -76,4 +78,21 @@ test('unrelated chatter and empty messages leave empty stats', () => {
   assert.deepEqual(b.offers, []);
   assert.deepEqual(b.wants, []);
   assert.deepEqual(b.stats, { offers: 0, sellers: 0, buyers_asking: 0, min_price: null, median_price: null, max_price: null });
+});
+
+test('free promotions are not offers and zero-price services do not skew paid stats', () => {
+  const b = buildMarket([
+    message('Selling audits 9 credits\nFree preview on request'),
+    message('Menu:\nFeel free to DM me\nFree trial available\nFree to ask questions\nIntro: free\nOffering setup for free\nOffering docs 0 credits'),
+  ]);
+  assert.deepEqual(b.offers.map(o => o.service), ['Intro: free', 'Offering setup for free', 'Offering docs 0 credits', 'Selling audits 9 credits']);
+  assert.deepEqual(b.offers.map(o => o.price), [0, 0, 0, 9]);
+  assert.deepEqual(b.stats, { offers: 4, sellers: 1, buyers_asking: 0, min_price: 9, median_price: 9, max_price: 9 });
+  assert.match(b.advice[0], /Median ask is 9 credits/);
+});
+
+test('URL query strings do not turn real offers into questions', () => {
+  const content = 'Selling translation, see https://x.dev/p?id=1 for 5 credits';
+  const b = buildMarket([message(content), message('For this service at https://x.dev/p?id=1, is 5 credits fair?')]);
+  assert.deepEqual(b.offers, [{ who: 'seller', sequence: 12, price: 5, service: content }]);
 });
