@@ -89,7 +89,8 @@ export function checkTool(t) {
   if (!desc) issues.push('missing description');
   else if (desc.length < 40) issues.push('description too short to explain when to use it');
   else if (desc.length > 1200) issues.push('description very long; front-load the first sentence');
-  if (!/^[a-z][a-z0-9_-]*$/.test(t.name || '')) issues.push('name is not lower snake_case or kebab-case');
+  // MCP allows letters, digits, _ - . in tool names (e.g. product.selfcheck).
+  if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(t.name || '')) issues.push('name has characters MCP clients may reject (use letters, digits, _ - .)');
   for (const [k, v] of Object.entries(props)) {
     if (!v.description) issues.push(`param "${k}" has no description`);
   }
@@ -100,7 +101,7 @@ export function checkTool(t) {
 // One real call, only to a tool that is safe to call blind: marked read-only,
 // or named like a read (get/list/search/...), with every required arg fillable.
 // Prefix (get_x) or suffix (product_health) forms.
-const READ_NAME = /^(get|list|search|read|query|resolve|find|fetch|describe|lookup|health|ping|echo|status|version|whoami|info|menu)|[_-](health|ping|menu|info|status|version|whoami)$/i;
+const READ_NAME = /^(get|list|search|read|query|resolve|find|fetch|describe|lookup|health|ping|echo|status|version|whoami|info|menu|selfcheck)|[_.-](health|ping|menu|info|status|version|whoami|selfcheck)$/i;
 const WRITE_NAME = /(create|delete|remove|update|write|send|post|push|merge|pay|transfer|buy|order|close|run|exec|click|navigate|type|fill|upload|install)/i;
 
 export function pickSmokeTool(tools) {

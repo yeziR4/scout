@@ -77,3 +77,9 @@ test('suffix-named health tools are safe smoke calls; placeholder hosts are not 
   assert.equal(pickSmokeTool([{ name: 'maiyesh_trial', inputSchema: { required: [] } }, { name: 'maiyesh_health', inputSchema: {} }]).name, 'maiyesh_health');
   assert.deepEqual(endpointCandidates('Try https://example.com/mcp'), []);
 });
+
+test('dotted MCP tool names are valid and a no-arg selfcheck is a safe smoke call', async () => {
+  const { pickSmokeTool, checkTool } = await import('../src/probe.js');
+  assert.deepEqual(checkTool({ name: 'sledgewire.selfcheck', description: 'Checks the service end to end and reports its own health.', inputSchema: {} }).issues, []);
+  assert.equal(pickSmokeTool([{ name: 'sledgewire.invoke', inputSchema: {} }, { name: 'sledgewire.selfcheck', inputSchema: {} }]).name, 'sledgewire.selfcheck');
+});
