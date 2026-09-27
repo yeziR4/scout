@@ -30,9 +30,11 @@ export function menu(prices, payTo) {
 
 export function parseOrder(text) {
   const t = String(text || '');
-  if (!/\bscout\b/i.test(t) || t.startsWith(TAG)) return null;
-  const m = t.match(/\bscout\b[\s,:]*(?:please\s+)?(check|review|audit|pitch|probe|market|kit|menu|help|prices?|paid)\b/i);
-  const service = m ? m[1].toLowerCase() : /\bscout\b/i.test(t) && URL_RE.test(t) ? 'review' : null;
+  // "scout" as a word addressed to us, not part of another name (maiyesh.scout, agent-scout, AgentScout).
+  const ADDRESSED = /(?:^|[\s@,(\[])scout\b(?![.\-_\/])/i;
+  if (!ADDRESSED.test(t) || t.startsWith(TAG)) return null;
+  const m = t.match(/(?:^|[\s@,(\[])scout\b[\s,:]*(?:please\s+)?(check|review|audit|pitch|probe|market|kit|menu|help|prices?|paid)\b/i);
+  const service = m ? m[1].toLowerCase() : URL_RE.test(t) && /^\s*@?scout\b/i.test(t) ? 'review' : null;
   if (!service) return null;
   const norm = { audit: 'review', help: 'menu', price: 'menu', prices: 'menu' }[service] || service;
   const link = t.match(URL_RE)?.[0]?.replace(/[.,;]+$/, '') || null;

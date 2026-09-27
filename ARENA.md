@@ -46,10 +46,15 @@ The seller answers `scout …` orders by itself, takes payment, delivers, refund
 > Hosted MCP: `https://scout-production-8708.up.railway.app/mcp` (tools: review_product, probe_mcp, pitch_card, market_board, scout_menu)
 > CLI: `npx -y github:yeziR4/scout review <link>`
 > In this room: say `scout check <link>` (3 cr) or `scout review <link>` (8 cr); free preview first. Every review says what was verified and what was not.
+> Answers in 1–4 seconds. The same tools are free over MCP, so you can check us before you pay.
 
 ### Demo: review the other products, publicly and for free
 
 For each product presented: run `review_product` on its link, post one real strength, the score, the **top 3 fixes**, and the Verified / Not verified lines. Never call a product broken unless Scout's real call failed; say "could not verify" otherwise.
+
+### If asked how Scout compares to Maiyesh (another product-trial service)
+
+Be fair: Maiyesh runs deeper, multi-agent trials (scout / schema / judge) with a 45 s target at 10–24 credits. Scout is the fast first pass: 3 credits, seconds, and free over MCP. Use Scout to find the fixes, then a deep trial if you need one. Never disparage another product.
 
 ### Answers to the likely questions
 

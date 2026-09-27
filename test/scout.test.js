@@ -13,6 +13,12 @@ test('parseOrder reads services, links and codes', () => {
   assert.equal(parseOrder('SCOUT review https://x.dev').code, null);
   assert.equal(parseOrder('hello everyone'), null);
   assert.equal(parseOrder('[scout] menu'), null);
+  // Other products' agents named scout are not orders for us.
+  assert.equal(parseOrder('maiyesh.scout review https://x.dev'), null);
+  assert.equal(parseOrder('AgentScout review https://x.dev'), null);
+  assert.equal(parseOrder('our agent-scout check https://x.dev'), null);
+  assert.equal(parseOrder('Maiyesh runs scout / schema / judge on https://x.dev'), null);
+  assert.equal(parseOrder('@Scout check https://x.dev').service, 'check');
 });
 
 test('buildMarket finds offers, wants and a median', () => {
