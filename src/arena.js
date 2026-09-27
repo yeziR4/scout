@@ -273,7 +273,11 @@ export class ScoutSeller {
       const code = (t.memo.match(CODE_RE) || [])[0]?.toUpperCase();
       let o = code && this.orders.get(code);
       // No memo: match the oldest unpaid order from that payer, else by exact price.
-      if (!o) o = [...this.orders.values()].find((x) => x.status === 'quoted' && x.buyerIds.some((id) => t.from_ids.includes(id)));
+      // No code in the memo: the payer's newest open quote at exactly this price, else their newest open quote.
+      if (!o) {
+        const mine = [...this.orders.values()].filter((x) => x.status === 'quoted' && x.buyerIds.some((id) => t.from_ids.includes(id))).sort((a, b) => b.at - a.at);
+        o = mine.find((x) => x.price === t.amount) || mine[0];
+      }
       if (!o) o = [...this.orders.values()].find((x) => x.status === 'quoted' && x.price === t.amount);
       if (!o) {
         // A payment naming an order code we never issued (or already served) goes back.

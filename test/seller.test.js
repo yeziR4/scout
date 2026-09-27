@@ -141,3 +141,14 @@ test('a seller we paid can still buy from us', async () => {
   await s.checkPayments();
   assert.equal(s.prepaid.p_maiyesh, 3);
 });
+
+test('a payment without a code goes to the payer\'s quote with the same price', async () => {
+  const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet }).init();
+  await order(s, 'scout market'); // 3 cr quote
+  await order(s, 'scout kit https://github.com/a/b'); // 14 cr quote
+  const kit = [...s.orders.values()].find((o) => o.service === 'kit');
+  pay(room, 't1', 14, 'Roeu');
+  await s.checkPayments();
+  assert.equal(kit.status, 'delivered');
+  assert.equal(room.sent.length, 0);
+});
