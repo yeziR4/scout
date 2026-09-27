@@ -112,3 +112,17 @@ test('payment before any order becomes credit, then the next order runs without 
   assert.equal(o.status, 'delivered');
   assert.equal(s.prepaid.p_buyer, 0);
 });
+
+test('refunds of our own purchases are never booked as sales or credit', async () => {
+  const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet }).init();
+  // We paid a seller; the ledger shows our outgoing transfer.
+  room.items.push({ id: 'out1', amount: 5, memo: 'ord_scout_1', from: { principal_id: 'p_me' }, to: { principal_id: 'p_seller' } });
+  await s.checkPayments();
+  // Their refund comes back without the word refund in the memo, and another with it.
+  room.items.push({ id: 'r1', amount: 5, memo: 'txn_abc', from: { principal_id: 'p_seller' }, to: { principal_id: 'p_me' } });
+  room.items.push({ id: 'r2', amount: 3, memo: 'refund:txn_x', from: { principal_id: 'p_other' }, to: { principal_id: 'p_me' } });
+  await s.checkPayments();
+  assert.equal(room.said.length, 0);
+  assert.deepEqual(s.prepaid, {});
+  assert.equal(s.earned, 0);
+});

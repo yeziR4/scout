@@ -49,6 +49,7 @@ export class ScoutSeller {
     this.previewWindowMs = previewWindowMs;
     this.previews = new Map(); // buyer id -> timestamps of free previews
     this.prepaid = {}; // payer principal -> credits paid before ordering
+    this.paidTo = new Set(); // principals we paid: money back from them is a refund, not a sale
     this.sn = client;
     this.prices = prices;
     this.log = log;
@@ -71,6 +72,14 @@ export class ScoutSeller {
       this.log(`whoami failed: ${e.message}`);
     }
     // Orders survive a restart, so a payment for an order quoted before the restart is still honoured.
+    // Remember everyone we have paid, so money coming back from them is treated as a refund.
+    try {
+      const t = await this.sn.transfers({ limit: 100 });
+      for (const it of t.items || []) {
+        const x = transferInfo(it);
+        if (x.from_ids.some((id) => this.myIds.has(id))) for (const id of x.to_ids) if (!this.myIds.has(id)) this.paidTo.add(id);
+      }
+    } catch { /* checked again on each poll */ }
     const saved = this.loadState();
     if (saved) {
       for (const o of saved.orders || []) this.orders.set(o.code, o);
@@ -241,8 +250,17 @@ export class ScoutSeller {
       const t = transferInfo(raw);
       if (!t.id || this.seenTransfers.has(t.id)) continue;
       const incoming = t.direction ? /in|received|credit/i.test(t.direction) : t.to_ids.some((id) => this.myIds.has(id)) || !t.from_ids.some((id) => this.myIds.has(id));
-      if (!incoming) { this.seenTransfers.add(t.id); continue; }
+      if (!incoming) {
+        this.seenTransfers.add(t.id);
+        for (const id of t.to_ids) if (!this.myIds.has(id)) this.paidTo.add(id);
+        continue;
+      }
       this.seenTransfers.add(t.id);
+      // Refunds of our own purchases are not sales: never book them as revenue or credit.
+      if (/\brefund/i.test(t.memo) || t.from_ids.some((id) => this.paidTo.has(id))) {
+        this.log(`ignored refund/return ${t.id} ${t.amount} from ${t.from_ids[0]} memo=${t.memo}`);
+        continue;
+      }
       this.earned += t.amount;
       const code = (t.memo.match(CODE_RE) || [])[0]?.toUpperCase();
       let o = code && this.orders.get(code);
@@ -307,7 +325,7 @@ export class ScoutSeller {
 function norm(m) { return { sender: senderName(m), content: m.content ?? m.text ?? '', sequence: m.sequence }; }
 
 export function fmtProbe(p) {
-  const lines = [`MCP probe ${p.url}: ${p.reachable ? 'reachable' : 'NOT reachable'}${p.server ? ` (${p.server.name} ${p.server.version || ''})` : ''}`];
+  const lines = [`MCP probe ${p.url}: ${p.reachable ? 'reachable' : p.auth_required ? `answers, auth required (HTTP ${p.http_status})` : 'NOT reachable'}${p.server ? ` (${p.server.name} ${p.server.version || ''})` : ''}`];
   if (p.smoke) lines.push(p.smoke.skipped ? `real call: skipped (${p.smoke.reason})` : `real call: ${p.smoke.tool} ${p.smoke.ok ? `OK in ${p.smoke.ms}ms` : `FAILED: ${p.smoke.error}`}`);
   if (p.latency_ms) lines.push(`latency: ${Object.entries(p.latency_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}`);
   for (const t of (p.tools || []).slice(0, 12)) lines.push(`- ${t.name}${t.issues.length ? `: ${t.issues.join(', ')}` : ': ok'}`);
