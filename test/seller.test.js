@@ -126,3 +126,9 @@ test('refunds of our own purchases are never booked as sales or credit', async (
   assert.deepEqual(s.prepaid, {});
   assert.equal(s.earned, 0);
 });
+
+test('in the arena, messages from any seat of our own account are never orders', async () => {
+  const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet, skipOwnAccount: true }).init();
+  await s.handleMessage({ id: 'm', content: 'Offer: scout check <link> for 3 cr https://x.dev', sender_principal_id: 'p_me', sender_instance_id: 'i_agent' });
+  assert.equal(room.said.length, 0);
+});

@@ -15,6 +15,11 @@ const URGENT = '\u0000urgent:';
 
 export async function reviewProduct(link, { probe = true } = {}) {
   const doc = await fetchProductDoc(link);
+  // An MCP endpoint only answers POST: a failed GET is not "does not load". Review it live instead.
+  if (!doc.ok && probe && /\/(mcp|sse)\/?$/i.test(new URL(link).pathname)) {
+    const live = await probeMcp(link).catch(() => null);
+    if (live && (live.reachable || live.auth_required)) return endpointOnlyReview(link, live);
+  }
   if (!doc.ok) {
     return {
       link,
@@ -47,6 +52,26 @@ export async function reviewProduct(link, { probe = true } = {}) {
     checked: checkedList(doc, facts, live),
     facts,
     live_probe: live,
+  };
+}
+
+function endpointOnlyReview(link, live) {
+  const bad = (live.tools || []).filter((t) => t.issues.length);
+  let score = live.reachable ? 60 : 50;
+  if (live.tools?.length) score += 10;
+  if (live.tools?.length && !bad.length) score += 10;
+  if (live.smoke?.ok) score += 10;
+  if (live.instructions) score += 5;
+  const fixes = [
+    'Publish a doc page (README or /agents.md) next to the endpoint: agents need prices, auth and an example before calling.',
+    ...bad.slice(0, 3).map((t) => `Tool \`${t.name}\`: ${t.issues.join(', ')}.`),
+    ...(live.issues || []).slice(0, 2),
+  ];
+  return {
+    link, kind: 'mcp_server', score, grade: score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : 'D',
+    verdict: live.reachable ? `Live MCP endpoint with ${live.tools.length} tools${live.smoke?.ok ? `; real call to ${live.smoke.tool} OK` : ''}. Scored on the endpoint alone (no doc page given).` : 'MCP endpoint answers but requires auth; scored on the endpoint alone.',
+    areas: [], top_fixes: fixes.slice(0, 5), live_probe: live,
+    checked: { verified: [`MCP initialize + tools/list at ${link} (${live.tools?.length || 0} tools)`, ...(live.smoke?.ok ? [`one real call: ${live.smoke.tool} returned a result`] : [])], not_verified: ['no doc page was reviewed (link is the endpoint itself)', 'whether outputs are correct for real tasks'] },
   };
 }
 

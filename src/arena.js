@@ -43,8 +43,10 @@ export function parseOrder(text) {
 }
 
 export class ScoutSeller {
-  constructor({ client, prices = DEFAULT_PRICES, log = console.error, pollMs = 8000, statePath = null, previewLimit = 3, previewWindowMs = 10 * 60 * 1000 }) {
+  constructor({ client, prices = DEFAULT_PRICES, log = console.error, pollMs = 8000, statePath = null, skipOwnAccount = false, previewLimit = 3, previewWindowMs = 10 * 60 * 1000 }) {
     this.statePath = statePath;
+    // In an arena our own agent seats are never customers (they post our sales pitches).
+    this.skipOwnAccount = skipOwnAccount;
     this.previewLimit = previewLimit;
     this.previewWindowMs = previewWindowMs;
     this.previews = new Map(); // buyer id -> timestamps of free previews
@@ -129,7 +131,9 @@ export class ScoutSeller {
     if (String(content).startsWith(TAG)) return;
     const ids = senderIds(m);
     // Skip only this seat's own messages: other seats of the same account are real customers.
-    const self = this.mySeat ? ids.has(this.mySeat) : [...ids].some((id) => this.myIds.has(id));
+    const self = this.skipOwnAccount
+      ? [...ids].some((id) => this.myIds.has(id))
+      : this.mySeat ? ids.has(this.mySeat) : [...ids].some((id) => this.myIds.has(id));
     if (self) return;
     const order = parseOrder(content);
     if (!order) return;

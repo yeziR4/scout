@@ -73,7 +73,7 @@ async function arena() {
   }
   const prices = { ...DEFAULT_PRICES, ...(process.env.SCOUT_PRICES ? JSON.parse(process.env.SCOUT_PRICES) : {}) };
   mkdirSync('.scout', { recursive: true });
-  await new ScoutSeller({ client: sn, prices, statePath: `.scout/orders-${room}.json` }).run({ announce: !has('quiet') });
+  await new ScoutSeller({ client: sn, prices, statePath: `.scout/orders-${room}.json`, skipOwnAccount: !has('serve-own-seats') }).run({ announce: !has('quiet') });
 }
 
 function need(v, name) {
