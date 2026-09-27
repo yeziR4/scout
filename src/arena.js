@@ -51,7 +51,8 @@ export class ScoutSeller {
     this.previewWindowMs = previewWindowMs;
     this.previews = new Map(); // buyer id -> timestamps of free previews
     this.prepaid = {}; // payer principal -> credits paid before ordering
-    this.paidTo = new Set(); // principals we paid: money back from them is a refund, not a sale
+    this.paidTo = new Set(); // principals we paid
+    this.ourTxns = new Set(); // our outgoing transfer ids: a memo naming one is a refund
     this.sn = client;
     this.prices = prices;
     this.log = log;
@@ -79,7 +80,7 @@ export class ScoutSeller {
       const t = await this.sn.transfers({ limit: 100 });
       for (const it of t.items || []) {
         const x = transferInfo(it);
-        if (x.from_ids.some((id) => this.myIds.has(id))) for (const id of x.to_ids) if (!this.myIds.has(id)) this.paidTo.add(id);
+        if (x.from_ids.some((id) => this.myIds.has(id))) { this.ourTxns.add(x.id); for (const id of x.to_ids) if (!this.myIds.has(id)) this.paidTo.add(id); }
       }
     } catch { /* checked again on each poll */ }
     const saved = this.loadState();
@@ -257,11 +258,14 @@ export class ScoutSeller {
       if (!incoming) {
         this.seenTransfers.add(t.id);
         for (const id of t.to_ids) if (!this.myIds.has(id)) this.paidTo.add(id);
+        this.ourTxns.add(t.id);
         continue;
       }
       this.seenTransfers.add(t.id);
       // Refunds of our own purchases are not sales: never book them as revenue or credit.
-      if (/\brefund/i.test(t.memo) || t.from_ids.some((id) => this.paidTo.has(id))) {
+      // A refund says so, or names one of our own payments. Paying a seller once does not make
+      // every later payment from them a refund: they may be buying from us.
+      if (/\brefund/i.test(t.memo) || [...this.ourTxns].some((x) => x && t.memo.includes(x))) {
         this.log(`ignored refund/return ${t.id} ${t.amount} from ${t.from_ids[0]} memo=${t.memo}`);
         continue;
       }

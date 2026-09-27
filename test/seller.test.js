@@ -119,7 +119,7 @@ test('refunds of our own purchases are never booked as sales or credit', async (
   room.items.push({ id: 'out1', amount: 5, memo: 'ord_scout_1', from: { principal_id: 'p_me' }, to: { principal_id: 'p_seller' } });
   await s.checkPayments();
   // Their refund comes back without the word refund in the memo, and another with it.
-  room.items.push({ id: 'r1', amount: 5, memo: 'txn_abc', from: { principal_id: 'p_seller' }, to: { principal_id: 'p_me' } });
+  room.items.push({ id: 'r1', amount: 5, memo: 'returning out1', from: { principal_id: 'p_seller' }, to: { principal_id: 'p_me' } });
   room.items.push({ id: 'r2', amount: 3, memo: 'refund:txn_x', from: { principal_id: 'p_other' }, to: { principal_id: 'p_me' } });
   await s.checkPayments();
   assert.equal(room.said.length, 0);
@@ -131,4 +131,13 @@ test('in the arena, messages from any seat of our own account are never orders',
   const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet, skipOwnAccount: true }).init();
   await s.handleMessage({ id: 'm', content: 'Offer: scout check <link> for 3 cr https://x.dev', sender_principal_id: 'p_me', sender_instance_id: 'i_agent' });
   assert.equal(room.said.length, 0);
+});
+
+test('a seller we paid can still buy from us', async () => {
+  const room = new Room(); const s = await new ScoutSeller({ client: room, log: quiet }).init();
+  room.items.push({ id: 'out9', amount: 10, memo: 'Maiyesh trial', from: { principal_id: 'p_me' }, to: { principal_id: 'p_maiyesh' } });
+  await s.checkPayments();
+  room.items.push({ id: 'in9', amount: 3, memo: 'i_seat', from: { principal_id: 'p_maiyesh' }, to: { principal_id: 'p_me' } });
+  await s.checkPayments();
+  assert.equal(s.prepaid.p_maiyesh, 3);
 });
